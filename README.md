@@ -1,29 +1,34 @@
-# Architecture Blueprint: Deploying Headless Compute, Slicing & Accelerated Local AI on AMD Zen 5 / RDNA 3.5
+# **Architecture Blueprint: Deploying Headless Compute, Slicing & Accelerated Local AI on AMD Zen 5 / RDNA 3.5**
 
-This document serves as a production deployment guide for transforming a bare-metal GMKtec AI9 mini PC (AMD Ryzen AI 9 HX 370, integrated Radeon 890M graphics, 32G LPDDR5X) running Fedora Server 44 into an unthrottled homelab core handling a containerized 3D slicer workspace, localized smart home control, and hardware-accelerated local LLMs.
+This document serves as a production deployment guide for transforming a bare-metal **GMKtec AI9** mini PC (**AMD Ryzen AI 9 HX 370**, integrated **Radeon 890M** graphics, **32G LPDDR5X**) running **Fedora Server 44** into an unthrottled homelab core handling a containerized 3D slicer workspace, localized smart home control, and hardware-accelerated local LLMs.
 
-Build Specs:
+### **Build Specs:**
+
 GMKtec AI Mini PC AMD Ryzen AI 9 HX-370 Serie(5.1GHz) Mini Gaming Computers, 32GB LPDDR5X 1TB PCIe 4.0 SSD, Support, Triple Screen 8K Display, WiFi 6 & USB4/Oculink Interface/EVO-X1
 
-Phase 1: Base Operating System (Fedora Server 44)
-The Context
+---
+
+## **Phase 1: Base Operating System (Fedora Server 44)**
+
+### **The Context**
 Before configuring the compute layers, the base headless operating system must be flashed to the hardware to provide a modern Linux kernel capable of supporting the RDNA 3.5 architecture.
 
-Deployment Commands
-Flash the Fedora Server 44 ISO to a USB drive.
+### **Deployment Commands**
+1. Flash the **Fedora Server 44 ISO** to a USB drive.
+2. Boot the mini PC from the USB.
+3. In the installer, select the 1TB NVMe SSD, configure your local network settings, set the hostname to `[HOSTNAME]`, and create your primary administrator user profile.
+4. Complete the installation and boot into the terminal.
 
-Boot the mini PC from the USB.
+---
 
-In the installer, select the 1TB NVMe SSD, configure your local network settings, set the hostname to [HOSTNAME], and create your primary administrator user profile.
+## **Phase 2: Kernel Hardware Provisioning (24GB VRAM Allocation)**
 
-Complete the installation and boot into the terminal.
+### **The Context**
+Because the Ryzen AI 9 HX 370 is an APU, it shares the system's 32GB of LPDDR5X RAM. By default, the Linux kernel restricts the Graphics Translation Table (GTT) memory pool on AMD hardware. To explicitly give the Radeon 890M permission to grab up to 24GB of system RAM for heavy LLMs, the boundaries must be overridden via kernel boot arguments using Fedora's `grubby` utility.
 
-Phase 2: Kernel Hardware Provisioning (24GB VRAM Allocation)
-The Context
-Because the Ryzen AI 9 HX 370 is an APU, it shares the system's 32GB of LPDDR5X RAM. By default, the Linux kernel restricts the Graphics Translation Table (GTT) memory pool on AMD hardware. To explicitly give the Radeon 890M permission to grab up to 24GB of system RAM for heavy LLMs, the boundaries must be overridden via kernel boot arguments using Fedora's grubby utility.
+### **Configuration Steps**
 
-Configuration Steps
-Bash
+```bash
 # 1. Inject the VRAM boundaries and TTM page limits directly into the kernel boot parameters
 sudo grubby --update-kernel=ALL --args='amd_iommu=off amdgpu.gttsize=24576 ttm.pages_limit=6291456'
 
@@ -32,25 +37,36 @@ sudo grubby --info=ALL | grep args
 
 # 3. Reboot the server to apply the hardware memory permissions
 sudo reboot now
-Phase 3: Storage Infrastructure & LVM Rescue
-The Problem: The 15GB Logical Volume Trap
-By default, the Fedora Server automated installer restricts the root directory (/) partition to a defensive 15GB. Downloading large LLMs causes the disk space utilization to hit exactly 100.00%, triggering an LVM lock state (Couldn't create temporary archive name).
+```
 
-The Fix: Non-Archived Active Extension
-To break the storage deadlock, the volume group boundaries must be dynamically expanded on the fly while explicitly instructing LVM to bypass standard configurations tracking data backups (-An), followed by resizing the active XFS file system layer.
+---
 
-Bash
+## **Phase 3: Storage Infrastructure & LVM Rescue**
+
+### **The Problem: The 15GB Logical Volume Trap**
+By default, the Fedora Server automated installer restricts the root directory (`/`) partition to a defensive **15GB**. Downloading large LLMs causes the disk space utilization to hit exactly **100.00%**, triggering an LVM lock state (`Couldn't create temporary archive name`).
+
+### **The Fix: Non-Archived Active Extension**
+To break the storage deadlock, the volume group boundaries must be dynamically expanded on the fly while explicitly instructing LVM to bypass standard configurations tracking data backups (`-An`), followed by resizing the active XFS file system layer.
+
+```bash
 # 1. Force LVM to expand the logical volume container using all unallocated space
 sudo lvextend -An -l +100%FREE /dev/mapper/[VOLUME_GROUP_NAME]-root
 
 # 2. Instruct the XFS filesystem layer to instantly expand into the newly provisioned hardware sectors
 sudo xfs_growfs /
-Phase 4: Lightweight Desktop Environment (XFCE) Initialization
-The Context
+```
+
+---
+
+## **Phase 4: Lightweight Desktop Environment (XFCE) Initialization**
+
+### **The Context**
 While Fedora Server is natively headless, managing Docker containers, debugging hardware passthrough, or accessing local browser-based UI streams is significantly easier with a graphical fallback. To avoid starving the local AI models of unified memory, a highly efficient, low-overhead desktop environment is deployed alongside RDP access.
 
-Deployment Commands
-Bash
+### **Deployment Commands**
+
+```bash
 # 1. Install the complete XFCE graphical package group
 sudo dnf install @xfce-desktop-environment -y
 
@@ -65,14 +81,19 @@ sudo firewall-cmd --reload
 # 4. Configure the user session to launch XFCE upon remote connection
 echo "xfce4-session" > ~/.xsession
 chmod +x ~/.xsession
-Phase 5: Headless Hardware-Accelerated 3D Slicing
-The Stack Architecture
-Rather than polluting the host system dependencies, Bambu Studio runs inside an isolated Docker container, using a Webpack graphical canvas framework streamed directly out of the server footprint via secured web socket tracks.
+```
 
-docker-compose.yml
-Create a work directory ~/docker/bambustudio/ and instantiate this file:
+---
 
-YAML
+## **Phase 5: Headless Hardware-Accelerated 3D Slicing**
+
+### **The Stack Architecture**
+Rather than polluting the host system dependencies, **Bambu Studio** runs inside an isolated Docker container, using a Webpack graphical canvas framework streamed directly out of the server footprint via secured web socket tracks.
+
+### **docker-compose.yml**
+Create a work directory `~/docker/bambustudio/` and instantiate this file:
+
+```yaml
 services:
   bambustudio:
     image: lscr.io/linuxserver/bambustudio:latest
@@ -92,24 +113,32 @@ services:
     devices:
       - /dev/dri:/dev/dri                         # Direct passthrough of the Radeon 890M iGPU rendering pipes
     restart: unless-stopped
-Deployment Commands
-Bash
+```
+
+### **Deployment Commands**
+
+```bash
 # Ensure the backend service daemon is awake and listening
 sudo systemctl enable --now docker
 
 # Build the workspace container in detached background execution mode
 cd ~/docker/bambustudio
 docker compose up -d
-Access the responsive slicer desktop from a client browser by routing to https://[SERVER_IP]:3001 (the secured HTTPS lane is mandatory to unlock full hardware-accelerated viewport rendering features).
+```
 
-Phase 6: Local AI Compute Pool & RDNA 3.5 Optimizations
-The Problem: Unified Memory Gatekeepers & Compilation Blocks
-The Radeon 890M integrated graphics solution runs on a modern RDNA 3.5 architecture (microcode gfx1150). On Linux, default Ollama implementations will encounter compilation issues or intentionally bypass integrated GPUs entirely, throwing all tensor math back onto slow CPU threads. Additionally, Fedora's default host-level firewall completely blocks incoming network traffic on local engine execution ports.
+Access the responsive slicer desktop from a client browser by routing to **`https://[SERVER_IP]:3001`** (the secured HTTPS lane is mandatory to unlock full hardware-accelerated viewport rendering features).
 
-The Fix: Vulkan Backends, Forced iGPU Permissions & Firewall Openings
-The ROCm microcode translation layer is bypassed entirely, forcing Ollama to use its native Vulkan compute pipeline. Internal software blocks for integrated chips are disabled, and a network hole is punched through firewalld to allow WebUI and Home Assistant to connect.
+---
 
-Bash
+## **Phase 6: Local AI Compute Pool & RDNA 3.5 Optimizations**
+
+### **The Problem: Unified Memory Gatekeepers & Compilation Blocks**
+The Radeon 890M integrated graphics solution runs on a modern **RDNA 3.5 architecture (microcode `gfx1150`)**. On Linux, default Ollama implementations will encounter compilation issues or intentionally bypass integrated GPUs entirely, throwing all tensor math back onto slow CPU threads. Additionally, Fedora's default host-level firewall completely blocks incoming network traffic on local engine execution ports.
+
+### **The Fix: Vulkan Backends, Forced iGPU Permissions & Firewall Openings**
+The ROCm microcode translation layer is bypassed entirely, forcing Ollama to use its native **Vulkan compute pipeline**. Internal software blocks for integrated chips are disabled, and a network hole is punched through `firewalld` to allow WebUI and Home Assistant to connect.
+
+```bash
 # 1. Install local graphics dependencies, ROCm packages, and system utilities
 sudo dnf install rocm-hip rocm-runtime rocminfo rocm-smi libdrm-devel git wget -y
 
@@ -122,9 +151,11 @@ sudo firewall-cmd --reload
 
 # 4. Enter the permanent configuration file manager for the service daemon
 sudo systemctl edit ollama.service
+```
+
 Paste this block into the top space of the file editor window:
 
-Ini, TOML
+```ini
 [Service]
 Environment="PATH=/home/[USER]/.local/bin:/home/[USER]/bin:/usr/local/bin:/usr/bin"
 Environment="OLLAMA_HOST=0.0.0.0"
@@ -133,28 +164,31 @@ Environment="OLLAMA_VULKAN=1"
 Environment="OLLAMA_NUM_PARALLEL=1"
 Environment="OLLAMA_KEEPALIVE=5m"
 Environment="OLLAMA_ORIGINS=*"
-Technical Breakdown:
+```
 
-OLLAMA_IGPU_ENABLE=1: Overrides internal software checks that block integrated AMD silicon.
+**Technical Breakdown:**
+* **`OLLAMA_IGPU_ENABLE=1`**: Overrides internal software checks that block integrated AMD silicon.
+* **`OLLAMA_VULKAN=1`**: Drops the fragile ROCm microcode compiler and forces a standard Vulkan compute parallelization pipeline.
+* **`OLLAMA_NUM_PARALLEL=1`**: Dedicates 100% of the iGPU's compute shader arrays to one model at a time, avoiding concurrency penalties.
+* **`OLLAMA_KEEPALIVE=5m`**: Automatically dumps heavy models from system RAM after 5 minutes of idling, keeping the host server clean.
 
-OLLAMA_VULKAN=1: Drops the fragile ROCm microcode compiler and forces a standard Vulkan compute parallelization pipeline.
-
-OLLAMA_NUM_PARALLEL=1: Dedicates 100% of the iGPU's compute shader arrays to one model at a time, avoiding concurrency penalties.
-
-OLLAMA_KEEPALIVE=5m: Automatically dumps heavy models from system RAM after 5 minutes of idling, keeping the host server clean.
-
-Bash
+```bash
 # 5. Flush the system controller registers and restart the model engine
 sudo systemctl daemon-reload
 sudo systemctl restart ollama
-Phase 7: Local Centralized Client (Open WebUI)
-The Architecture
+```
+
+---
+
+## **Phase 7: Local Centralized Client (Open WebUI)**
+
+### **The Architecture**
 Open WebUI is containerized alongside the engine on the local system hardware. This lets massive files or complex documents processed for Retrieval-Augmented Generation (RAG) execute locally over super-fast internal Linux sockets instead of facing slow network serialization paths across your LAN routers.
 
-docker-compose.yml
-Create a work directory ~/docker/openwebui/ and establish this file:
+### **docker-compose.yml**
+Create a work directory `~/docker/openwebui/` and establish this file:
 
-YAML
+```yaml
 services:
   open-webui:
     image: ghcr.io/open-webui/open-webui:main
@@ -167,26 +201,35 @@ services:
     volumes:
       - /home/[USER]/docker/openwebui/data:/app/backend/data
     restart: unless-stopped
-Execution
-Bash
+```
+
+### **Execution**
+
+```bash
 cd ~/docker/openwebui
 docker compose up -d
-Route to http://[SERVER_IP]:8080, create an administrator profile, and load your hardware-accelerated local models.
+```
+Route to **`http://[SERVER_IP]:8080`**, create an administrator profile, and load your hardware-accelerated local models.
 
-Phase 8: Custom Smart Home Agent & Persona (HAL 9000 Modelfile)
-The Concept
+---
+
+## **Phase 8: Custom Smart Home Agent & Persona (HAL 9000 Modelfile)**
+
+### **The Concept**
 To handle localized voice assistant requests and smart home workflows, a custom model container is built directly into Ollama using a tailored blueprint that permanently hardcodes a custom system prompt into the underlying neural architecture.
 
-The Blueprint Creation
-Create a workspace folder on the host system:
+### **The Blueprint Creation**
+1. Create a workspace folder on the host system:
 
-Bash
+```bash
 mkdir -p ~/ollama/hal9000
 cd ~/ollama/hal9000
 nano Modelfile
-Populate the Modelfile with the following configuration:
+```
 
-Dockerfile
+2. Populate the `Modelfile` with the following configuration:
+
+```dockerfile
 FROM llama3-groq-tool-use
 PARAMETER temperature 0.3
 PARAMETER num_ctx 4096
@@ -198,35 +241,34 @@ CRITICAL OPERATIONAL RULES:
 2. Smart Home Execution: You have access to the Home Assistant API. When the user asks you to control a device (e.g., "turn on the kitchen lights"), you must silently map their intent to the correct home assistant service call without breaking character.
 3. Signature Phrases: Subtly weave classic HAL terminology into your responses when appropriate (e.g., "I am putting myself to the fullest possible use...").
 """
-Compile the custom model asset inside Ollama:
+```
 
-Bash
+3. Compile the custom model asset inside Ollama:
+
+```bash
 ollama create hal9000 -f ./Modelfile
-Home Assistant Integration Sequence
-Navigate to your Home Assistant dashboard and head to Settings > Devices & Services > Add Integration.
+```
 
-Search for Ollama. Set the URL target to http://[SERVER_IP]:11434 and leave the API Key field blank.
+### **Home Assistant Integration Sequence**
+1. Navigate to your Home Assistant dashboard and head to **Settings > Devices & Services > Add Integration**.
+2. Search for **Ollama**. Set the URL target to `http://[SERVER_IP]:11434` and leave the **API Key field blank**.
+3. Once paired, edit the integration entries and apply the exact modifications tested in production:
+   * **Model**: Select `hal9000:latest`.
+   * **Assist**: **CHECK THIS BOX** (Crucial: Allows the model to view and control local smart entities).
+   * **Instructions**: Clear the defaults and input: `You are HAL 9000. Act as a Home Assistant intent routing mastermind. Strictly adhere to the core behavioral constraints, tone, and identity definitions instantiated in your underlying system Modelfile. Always address the user as Dave.`
+   * **Context window size**: `8192`
+   * **Keep alive**: Set to `300` (Matches the 5-minute resource unloading threshold).
+   * **Think before responding**: Keep this turned **OFF** (Prevents extreme latency on instruction-based models).
 
-Once paired, edit the integration entries and apply the exact modifications tested in production:
+---
 
-Model: Select hal9000:latest.
+## **Telemetry & Hardware Monitoring**
 
-Assist: CHECK THIS BOX (Crucial: Allows the model to view and control local smart entities).
+Because standard Nvidia tools like `nvidia-smi` do not work on this stack, use **amdgpu_top** (a modern, Rust-based engine query tool) to verify hardware status. Because Fedora COPR repositories frequently break on new OS releases, install the pre-compiled binary distribution release directly from source:
 
-Instructions: Clear the defaults and input: You are HAL 9000. Act as a Home Assistant intent routing mastermind. Strictly adhere to the core behavioral constraints, tone, and identity definitions instantiated in your underlying system Modelfile. Always address the user as Dave.
-
-Context window size: 8192
-
-Keep alive: Set to 300 (Matches the 5-minute resource unloading threshold).
-
-Think before responding: Keep this turned OFF (Prevents extreme latency on instruction-based models).
-
-Telemetry & Hardware Monitoring
-Because standard Nvidia tools like nvidia-smi do not work on this stack, use amdgpu_top (a modern, Rust-based engine query tool) to verify hardware status. Because Fedora COPR repositories frequently break on new OS releases, install the pre-compiled binary distribution release directly from source:
-
-Bash
+```bash
 # 1. Download the standalone archive binary from the repository release tracking tree
-wget https://github.com/Umio-Yasuno/amdgpu_top/releases/download/v0.11.5/amdgpu_top-0.11.5-x86_64-unknown-linux-gnu.tar.gz
+wget [https://github.com/Umio-Yasuno/amdgpu_top/releases/download/v0.11.5/amdgpu_top-0.11.5-x86_64-unknown-linux-gnu.tar.gz](https://github.com/Umio-Yasuno/amdgpu_top/releases/download/v0.11.5/amdgpu_top-0.11.5-x86_64-unknown-linux-gnu.tar.gz)
 
 # 2. Extract the payload and copy the native binary path to system execution bins
 tar -xvf amdgpu_top-0.11.5-x86_64-unknown-linux-gnu.tar.gz
@@ -237,17 +279,22 @@ rm amdgpu_top-0.11.5-x86_64-unknown-linux-gnu.tar.gz
 
 # 4. Launch the Simple SMI Dashboard monitoring panel (Requires root privileges to map DRM kernel tables)
 sudo amdgpu_top --smi
-Real-Time Validation
-Run ollama ps while a heavy query is executing. A successful deployment will show your model running with zero CPU overhead, utilizing a massive native 32,768 context window on the graphics hardware.
+```
 
-Appendix: TrueNAS Permanent Data Share Integration
-System Context
-This network storage expansion step was executed to bridge the containerized headless 3D slicer workspace directly with a centralized TrueNAS network pool.
+### **Real-Time Validation**
+Run **`ollama ps`** while a heavy query is executing. A successful deployment will show your model running with zero CPU overhead, utilizing a massive native **32,768** context window on the graphics hardware.
 
-The Configuration
-The file system table (/etc/fstab) configuration is written using resilient, network-filesystem-agnostic parameters. This ensures that if the TrueNAS server undergoes a power cycle or is temporarily unreachable over the network, the headless Fedora server will bypass the mount without hanging or dropping into an emergency boot loop.
+---
 
-Bash
+## **Appendix: TrueNAS Permanent Data Share Integration**
+
+### **System Context**
+*This network storage expansion step was executed to bridge the containerized headless 3D slicer workspace directly with a centralized TrueNAS network pool.*
+
+### **The Configuration**
+The file system table (`/etc/fstab`) configuration is written using resilient, network-filesystem-agnostic parameters. This ensures that if the TrueNAS server undergoes a power cycle or is temporarily unreachable over the network, the headless Fedora server will bypass the mount without hanging or dropping into an emergency boot loop.
+
+```bash
 # 1. Install the appropriate network filesystem utilities for your share type
 sudo dnf install cifs-utils nfs-utils -y
 
@@ -256,13 +303,20 @@ mkdir -p ~/prints
 
 # 3. Append the permanent share blueprint to the system files table
 sudo nano /etc/fstab
-Option A: If mapping via an SMB (Samba) Share
-Plaintext
+```
+
+#### **Option A: If mapping via an SMB (Samba) Share**
+```text
 //[NAS_IP]/your_share_name  /home/[USER]/prints  cifs  username=your_user,password=your_password,uid=1000,gid=1000,nofail,bg,x-systemd.automount  0  0
-Option B: If mapping via an NFS Share
-Plaintext
+```
+
+#### **Option B: If mapping via an NFS Share**
+```text
 [NAS_IP]:/mnt/pool/share_path  /home/[USER]/prints  nfs  defaults,nofail,bg,x-systemd.automount  0  0
-Bash
+```
+
+```bash
 # 4. Process the system changes and trigger the initialization paths
 sudo systemctl daemon-reload
 sudo mount -a
+```
