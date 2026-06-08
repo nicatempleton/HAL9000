@@ -31,8 +31,6 @@
 
 **Bash**
 
-**Bash**
-
 ```
 # 1. Force LVM to expand the logical volume container using all unallocated space
 sudo lvextend -An -l +100%FREE /dev/mapper/fedora_hal9000-root
@@ -74,8 +72,6 @@ sudo systemctl isolate graphical.target
 
 **YAML**
 
-**YAML**
-
 ```
 services:
   bambustudio:
@@ -99,8 +95,6 @@ services:
 ```
 
 ### **Deployment Commands**
-
-**Bash**
 
 **Bash**
 
