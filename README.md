@@ -6,14 +6,14 @@ GMKtec AI Mini PC AMD Ryzen AI 9 HX-370 Serie(5.1GHz) Mini Gaming Computers, 32G
 
 Phase 1: Base Operating System (Fedora Server 44)
 The Context
-Before configuring the compute layers, the base headless operating system must be flashed to the GMKtec hardware to provide a modern Linux kernel capable of supporting the RDNA 3.5 architecture.
+Before configuring the compute layers, the base headless operating system must be flashed to the hardware to provide a modern Linux kernel capable of supporting the RDNA 3.5 architecture.
 
 Deployment Commands
 Flash the Fedora Server 44 ISO to a USB drive.
 
-Boot the GMKtec mini PC from the USB.
+Boot the mini PC from the USB.
 
-In the installer, select the 1TB NVMe SSD, configure your local network settings, set the hostname to HAL9000, and create your primary administrator user profile.
+In the installer, select the 1TB NVMe SSD, configure your local network settings, set the hostname to [HOSTNAME], and create your primary administrator user profile.
 
 Complete the installation and boot into the terminal.
 
@@ -40,7 +40,7 @@ To break the storage deadlock, the volume group boundaries must be dynamically e
 
 Bash
 # 1. Force LVM to expand the logical volume container using all unallocated space
-sudo lvextend -An -l +100%FREE /dev/mapper/fedora_hal9000-root
+sudo lvextend -An -l +100%FREE /dev/mapper/[VOLUME_GROUP_NAME]-root
 
 # 2. Instruct the XFS filesystem layer to instantly expand into the newly provisioned hardware sectors
 sudo xfs_growfs /
@@ -83,8 +83,8 @@ services:
       - PGROUP=1000
       - TZ=America/Los_Angeles
     volumes:
-      - /home/nic/docker/bambustudio/config:/config
-      - /home/nic/prints:/prints                    # Local storage pipeline for model assets
+      - /home/[USER]/docker/bambustudio/config:/config
+      - /home/[USER]/prints:/prints                    # Local storage pipeline for model assets
     ports:
       - 3000:3000                                 # HTTP UI Access Track
       - 3001:3001                                 # HTTPS UI Access Track (Required for local browser decoding)
@@ -99,7 +99,7 @@ sudo systemctl enable --now docker
 # Build the workspace container in detached background execution mode
 cd ~/docker/bambustudio
 docker compose up -d
-Access the responsive slicer desktop from a client browser by routing to https://[YOUR_SERVER_IP]:3001 (the secured HTTPS lane is mandatory to unlock full hardware-accelerated viewport rendering features).
+Access the responsive slicer desktop from a client browser by routing to https://[SERVER_IP]:3001 (the secured HTTPS lane is mandatory to unlock full hardware-accelerated viewport rendering features).
 
 Phase 6: Local AI Compute Pool & RDNA 3.5 Optimizations
 The Problem: Unified Memory Gatekeepers & Compilation Blocks
@@ -113,7 +113,7 @@ Bash
 sudo dnf install rocm-hip rocm-runtime rocminfo rocm-smi libdrm-devel git wget -y
 
 # 2. Grant your user profile explicit hardware kernel rendering domain rights
-sudo usermod -a -G video,render nic
+sudo usermod -a -G video,render [USER]
 
 # 3. Unblock network access to the Ollama service daemon via the Fedora firewall
 sudo firewall-cmd --permanent --add-port=11434/tcp
@@ -125,7 +125,7 @@ Paste this block into the top space of the file editor window:
 
 Ini, TOML
 [Service]
-Environment="PATH=/home/nic/.local/bin:/home/nic/bin:/usr/local/bin:/usr/bin"
+Environment="PATH=/home/[USER]/.local/bin:/home/[USER]/bin:/usr/local/bin:/usr/bin"
 Environment="OLLAMA_HOST=0.0.0.0"
 Environment="OLLAMA_IGPU_ENABLE=1"
 Environment="OLLAMA_VULKAN=1"
@@ -161,16 +161,16 @@ services:
     ports:
       - 8080:8080
     environment:
-      - OLLAMA_BASE_URL=http://[YOUR_SERVER_IP]:11434  # Point explicitly to the host socket
+      - OLLAMA_BASE_URL=http://[SERVER_IP]:11434  # Point explicitly to the host socket
       - WEBUI_AUTH=true
     volumes:
-      - /home/nic/docker/openwebui/data:/app/backend/data
+      - /home/[USER]/docker/openwebui/data:/app/backend/data
     restart: unless-stopped
 Execution
 Bash
 cd ~/docker/openwebui
 docker compose up -d
-Route to http://[YOUR_SERVER_IP]:8080, create an administrator profile, and load your hardware-accelerated local models.
+Route to http://[SERVER_IP]:8080, create an administrator profile, and load your hardware-accelerated local models.
 
 Phase 8: Custom Smart Home Agent & Persona (HAL 9000 Modelfile)
 The Concept
@@ -204,7 +204,7 @@ ollama create hal9000 -f ./Modelfile
 Home Assistant Integration Sequence
 Navigate to your Home Assistant dashboard and head to Settings > Devices & Services > Add Integration.
 
-Search for Ollama. Set the URL target to http://[YOUR_SERVER_IP]:11434 and leave the API Key field blank.
+Search for Ollama. Set the URL target to http://[SERVER_IP]:11434 and leave the API Key field blank.
 
 Once paired, edit the integration entries and apply the exact modifications tested in production:
 
@@ -257,10 +257,10 @@ mkdir -p ~/prints
 sudo nano /etc/fstab
 Option A: If mapping via an SMB (Samba) Share
 Plaintext
-//[IP ADDRESS]/your_share_name  /home/nic/prints  cifs  username=your_user,password=your_password,uid=1000,gid=1000,nofail,bg,x-systemd.automount  0  0
+//[NAS_IP]/your_share_name  /home/[USER]/prints  cifs  username=your_user,password=your_password,uid=1000,gid=1000,nofail,bg,x-systemd.automount  0  0
 Option B: If mapping via an NFS Share
 Plaintext
-10.0.10.X:/mnt/pool/share_path  /home/nic/prints  nfs  defaults,nofail,bg,x-systemd.automount  0  0
+[NAS_IP]:/mnt/pool/share_path  /home/[USER]/prints  nfs  defaults,nofail,bg,x-systemd.automount  0  0
 Bash
 # 4. Process the system changes and trigger the initialization paths
 sudo systemctl daemon-reload
