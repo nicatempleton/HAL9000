@@ -1,4 +1,5 @@
-Architecture Blueprint: Deploying Headless Compute, Slicing & Accelerated Local AI on AMD Zen 5 / RDNA 3.5
+# Architecture Blueprint: Deploying Headless Compute, Slicing & Accelerated Local AI on AMD Zen 5 / RDNA 3.5
+
 This document serves as a production deployment guide for transforming a bare-metal GMKtec AI9 mini PC (AMD Ryzen AI 9 HX 370, integrated Radeon 890M graphics, 32G LPDDR5X) running Fedora Server 44 into an unthrottled homelab core handling a containerized 3D slicer workspace, localized smart home control, and hardware-accelerated local LLMs.
 
 Build Specs:
